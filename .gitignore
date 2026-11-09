@@ -1,0 +1,13 @@
+# iOS restore images (multi-GB, never commit)
+*.ipsw
+
+# Xcode / build output
+build/
+DerivedData/
+*.xcodeproj/
+*.ipa
+.DS_Store
+xcuserdata/
+
+# Local Claude Code settings
+.claude/settings.local.json
