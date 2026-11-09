@@ -7,6 +7,8 @@ import XCTest
 final class PipelineTests: XCTestCase {
     static let samples = ["scene", "portrait"]
     static let levels: [Double] = [0, 0.5, 1]
+    /// The synthetic portrait's face, in Core Image (bottom-up) coordinates.
+    static let portraitFace = CGRect(x: 480, y: 420, width: 240, height: 200)
 
     func testKernelsLoad() {
         XCTAssertTrue(Kernels.shared.allLoaded, Kernels.shared.loadError ?? "unknown error")
@@ -51,7 +53,12 @@ final class PipelineTests: XCTestCase {
                         XCTAssertGreaterThan(diff, previousDiff, "\(name)/\(look) should strengthen with intensity")
                     }
                     if level == 1 && !noSkinInScene {
-                        XCTAssertGreaterThan(diff, 0.002, "\(name)/\(look) at 100% should change the image")
+                        // Soft Skin only touches the face, so judge it there
+                        // rather than averaged over the whole frame.
+                        let changed = look == .softSkin
+                            ? TestSupport.meanAbsDiff(image, out, in: Self.portraitFace)
+                            : diff
+                        XCTAssertGreaterThan(changed, 0.002, "\(name)/\(look) at 100% should change the image")
                     }
                     previousDiff = diff
 

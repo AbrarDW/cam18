@@ -62,7 +62,10 @@ enum StylePipeline {
                                 seed: seed, unit: u)
         }
 
+        // Vibrance, color matrices and screen blends can overshoot slightly;
+        // keep the result in SDR range so it clips the same everywhere.
         return image
+            .applyingFilter("CIColorClamp")
             .applyingFilter("CISRGBToneCurveToLinear")
             .cropped(to: extent)
             .settingProperties(input.properties)
