@@ -1,0 +1,123 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select newest Xcode 26
+        run: |
+          XCODE=$(ls -d /Applications/Xcode_26*.app | sort -V | tail -1)
+          echo "Using $XCODE"
+          sudo xcode-select -s "$XCODE"
+          xcodebuild -version
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Pick an iPhone simulator
+        id: sim
+        run: |
+          UDID=$(xcrun simctl list devices available -j | python3 -c '
+          import json, sys, re
+          data = json.load(sys.stdin)["devices"]
+          def ver(rt):
+              m = re.search(r"iOS-(\d+)-(\d+)", rt)
+              return (int(m.group(1)), int(m.group(2))) if m else (0, 0)
+          best = None
+          for rt, devs in data.items():
+              if "iOS" not in rt or ver(rt)[0] < 26:
+                  continue
+              for d in devs:
+                  if d["name"].startswith("iPhone"):
+                      key = (ver(rt), "Pro" in d["name"], d["name"])
+                      if best is None or key > best[0]:
+                          best = (key, d["udid"], d["name"], rt)
+          if not best:
+              sys.exit("No iOS 26+ iPhone simulator found")
+          print(best[1])
+          print(f"{best[2]} on {best[3]}", file=sys.stderr)
+          ')
+          echo "udid=$UDID" >> "$GITHUB_OUTPUT"
+
+      - name: Run tests on the simulator
+        env:
+          # xcodebuild forwards TEST_RUNNER_* variables to the test process
+          # without the prefix; the pipeline tests write sample renders here.
+          TEST_RUNNER_SAMPLE_OUTPUT_DIR: ${{ github.workspace }}/build/samples
+        run: |
+          mkdir -p build/samples
+          STATUS=0
+          xcodebuild test \
+            -project Cam18.xcodeproj \
+            -scheme Cam18 \
+            -destination "id=${{ steps.sim.outputs.udid }}" \
+            -derivedDataPath build/DerivedData-tests \
+            -resultBundlePath build/TestResults.xcresult \
+            > build/test.log 2>&1 || STATUS=$?
+          grep -E "error:|Test Case .*(failed|passed)|Executed|\*\* TEST" build/test.log || true
+          if [ "$STATUS" -ne 0 ]; then tail -n 80 build/test.log; fi
+          exit $STATUS
+
+      - name: Build unsigned .ipa
+        run: |
+          STATUS=0
+          xcodebuild build \
+            -project Cam18.xcodeproj \
+            -scheme Cam18 \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination "generic/platform=iOS" \
+            -derivedDataPath build/DerivedData \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            > build/build.log 2>&1 || STATUS=$?
+          grep -E "error:|\*\* BUILD" build/build.log || true
+          if [ "$STATUS" -ne 0 ]; then tail -n 80 build/build.log; exit $STATUS; fi
+          APP=build/DerivedData/Build/Products/Release-iphoneos/Cam18.app
+          test -d "$APP"
+          rm -rf build/Payload && mkdir -p build/Payload
+          cp -R "$APP" build/Payload/
+          (cd build && zip -qry Cam18.ipa Payload)
+          ls -lh build/Cam18.ipa
+
+      - name: Upload .ipa
+        uses: actions/upload-artifact@v4
+        with:
+          name: Cam18-unsigned-ipa
+          path: build/Cam18.ipa
+          if-no-files-found: error
+
+      - name: Upload sample renders
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sample-renders
+          path: build/samples
+          if-no-files-found: warn
+
+      - name: Upload logs and test results
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs
+          path: |
+            build/*.log
+            build/TestResults.xcresult
+          if-no-files-found: ignore
