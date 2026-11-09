@@ -105,8 +105,9 @@ final class CameraModel {
         Task { try? await Task.sleep(for: .milliseconds(120)); shutterFlash = false }
 
         let angle = rotationCoordinator?.videoRotationAngleForHorizonLevelCapture ?? 90
-        var recipe = self.recipe
-        recipe.grainSeed = UInt32.random(in: 0...UInt32.max)
+        var seeded = self.recipe
+        seeded.grainSeed = UInt32.random(in: 0...UInt32.max)
+        let recipe = seeded
         let bake = AppSettings.bakeInLook
         let session = self.session
 
