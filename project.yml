@@ -1,0 +1,74 @@
+name: Cam18
+
+options:
+  bundleIdPrefix: com.cam18
+  deploymentTarget:
+    iOS: "26.0"
+  createIntermediateGroups: true
+  developmentLanguage: en
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    IPHONEOS_DEPLOYMENT_TARGET: "26.0"
+    TARGETED_DEVICE_FAMILY: "1"
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+    DEAD_CODE_STRIPPING: YES
+
+targets:
+  Cam18:
+    type: application
+    platform: iOS
+    sources:
+      - path: Cam18
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.cam18.app
+        PRODUCT_NAME: Cam18
+        MARKETING_VERSION: "1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: Cam18
+        INFOPLIST_KEY_NSCameraUsageDescription: Cam18 uses the camera to take photos with film-style looks.
+        INFOPLIST_KEY_NSPhotoLibraryUsageDescription: Cam18 saves your photos and lets you re-edit looks on photos it took.
+        INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription: Cam18 saves the photos you take to your library.
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
+        INFOPLIST_KEY_UIRequiresFullScreen: YES
+        INFOPLIST_KEY_UIStatusBarHidden: YES
+        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: UIInterfaceOrientationPortrait
+        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.photography
+        # Core Image kernels written in Metal Shading Language.
+        MTL_COMPILER_FLAGS: -fcikernel
+        MTLLINKER_FLAGS: -cikernel
+        CODE_SIGN_STYLE: Automatic
+
+  Cam18Tests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: Cam18Tests
+    dependencies:
+      - target: Cam18
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.cam18.tests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_HOST: $(BUILT_PRODUCTS_DIR)/Cam18.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Cam18
+        BUNDLE_LOADER: $(TEST_HOST)
+
+schemes:
+  Cam18:
+    build:
+      targets:
+        Cam18: all
+        Cam18Tests: [test]
+    test:
+      config: Debug
+      gatherCoverageData: false
+      targets:
+        - Cam18Tests
+    run:
+      config: Debug
+    archive:
+      config: Release
