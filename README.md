@@ -72,7 +72,8 @@ Styles, Adjust, aspect ratio, presets and the new UI (not yet checked):
 - [ ] RAW on: reopen a RAW photo in Cam18, change the look and save.
 - [ ] RAW on vs off: compare the same scene; RAW should show more grain and less sharpening.
 - [ ] Each aspect ratio: the saved photo has the framing the viewfinder showed, held upright and sideways.
-- [ ] Editable mode: reopen a cropped photo and change its aspect ratio; Revert in Photos restores the full 4:3 frame.
+- [x] Editable mode: reopen a cropped photo and change its aspect ratio.
+- [ ] Editable mode: Revert in Photos restores the full 4:3 frame of a cropped photo.
 - [ ] Each colour style and Adjust slider looks the same in the saved photo as in the preview.
 - [ ] The preview stays smooth with a style, several adjustments and looks stacked.
 - [ ] A saved preset is still there, and applies correctly, after restarting the app.
