@@ -1,6 +1,7 @@
 import CoreImage
 import Foundation
 import ImageIO
+import UIKit
 import UniformTypeIdentifiers
 
 /// Renders full-resolution stills through `StylePipeline` and encodes them,
@@ -88,6 +89,22 @@ final class StillRenderer: @unchecked Sendable {
         }
         props[kCGImageDestinationLossyCompressionQuality as String] = quality
         return props
+    }
+
+    /// A small styled, upright thumbnail of a captured photo for the camera UI.
+    func thumbnail(from data: Data, recipe: StyleRecipe, maxPixelSize: Int = 240) -> UIImage? {
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxPixelSize,
+        ]
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let small = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
+            return nil
+        }
+        let styled = StylePipeline.render(CIImage(cgImage: small), recipe: recipe)
+        guard let cg = context.createCGImage(styled, from: styled.extent) else { return nil }
+        return UIImage(cgImage: cg)
     }
 
     /// Reads the metadata dictionary from encoded image data.

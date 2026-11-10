@@ -2,7 +2,8 @@ import CoreImage
 import Photos
 import SwiftUI
 
-/// Reopens a photo from the library and lets you change or remove its look.
+/// Reopens a photo from the library and lets you change or remove its look
+/// and its aspect ratio.
 /// For photos Cam18 saved in editable mode, this starts from the untouched
 /// original and the saved recipe.
 struct EditorView: View {
@@ -15,7 +16,8 @@ struct EditorView: View {
     @State private var personMask: CIImage?
     @State private var recipe = StyleRecipe.neutral
     @State private var hadCam18Edit = false
-    @State private var selectedLook: Look = .film
+    @State private var panel: Panel = .style
+    @State private var panelOpen = true
     @State private var rendered: UIImage?
     @State private var renderTask: Task<Void, Never>?
     @State private var isSaving = false
@@ -43,10 +45,23 @@ struct EditorView: View {
                 }
                 .accessibilityHint("Touch and hold to compare with the original")
 
-                LookControls(look: selectedLook, recipe: $recipe)
-                    .frame(height: selectedLook == .toneColor ? 132 : 72)
-                    .padding(.horizontal, 20)
-                LookPicker(selected: $selectedLook, recipe: recipe)
+                Picker("Aspect ratio", selection: $recipe.aspect) {
+                    ForEach(AspectRatio.allCases) { ratio in
+                        Text(ratio == .full ? "Full" : ratio.label).tag(ratio)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .padding(.horizontal, 16)
+
+                if panelOpen {
+                    PanelControls(panel: panel, recipe: $recipe) { style in
+                        AppSettings.select(style, in: &recipe)
+                    }
+                    .padding(.horizontal, 16).padding(.vertical, 14)
+                    .glassCard()
+                    .padding(.horizontal, 10)
+                }
+                PanelPicker(selected: $panel, isOpen: $panelOpen, recipe: recipe)
                     .padding(.bottom, 8)
             }
             .background(Color.black)
@@ -63,7 +78,10 @@ struct EditorView: View {
                 ToolbarItem(placement: .bottomBar) {
                     if hadCam18Edit || !recipe.isNeutral {
                         Button("Remove Look", role: .destructive) {
-                            recipe = .neutral
+                            // Keep the crop: it's a framing choice, not part of the look.
+                            var cleared = StyleRecipe.neutral
+                            cleared.aspect = recipe.aspect
+                            recipe = cleared
                         }
                     }
                 }
@@ -72,7 +90,9 @@ struct EditorView: View {
         }
         .task { await load() }
         .onChange(of: recipe) { _, _ in scheduleRender() }
-        .onChange(of: selectedLook) { _, look in recipe.primaryLook = look }
+        .onChange(of: panel) { _, panel in
+            if let look = panel.look { recipe.primaryLook = look }
+        }
     }
 
     // MARK: Loading and rendering
@@ -95,7 +115,7 @@ struct EditorView: View {
             if let saved = loaded.value.2 {
                 recipe = saved
                 hadCam18Edit = true
-                selectedLook = saved.primaryLook
+                panel = Panel.allCases.first { $0.isActive(in: saved) } ?? .style
             } else {
                 recipe = StyleRecipe(look: .film, intensity: 0)
             }
