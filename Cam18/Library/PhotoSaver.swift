@@ -11,6 +11,8 @@ struct UncheckedSendable<Value>: @unchecked Sendable {
 }
 
 /// Saves photos through PhotoKit in one of two ways:
+/// Photos arrive either as RAW (DNG, the sensor data with none of Apple's
+/// processing) or as the camera's processed HEIC.
 /// - **Editable** (default): the untouched original is saved, then an edit is
 ///   applied with the rendered look and the JSON recipe as `PHAdjustmentData`.
 ///   Cam18 can reopen the recipe, and Revert in Photos restores the original.
@@ -74,7 +76,9 @@ final class PhotoSaver: @unchecked Sendable {
 
     func saveEditable(photoData: Data, recipe: StyleRecipe) async throws -> String {
         let identifier = try await createAsset(data: photoData)
-        guard !recipe.isNeutral else { return identifier }
+        // A RAW original always gets Cam18's rendering on top, even with no
+        // look, so Photos shows our development instead of its own.
+        guard !recipe.isNeutral || StillRenderer.isRAW(photoData) else { return identifier }
         guard let asset = PHAsset.fetchAssets(withLocalIdentifiers: [identifier], options: nil).firstObject else {
             throw SaveError.assetMissing
         }
@@ -101,36 +105,50 @@ final class PhotoSaver: @unchecked Sendable {
     }
 
     /// Loads the original image (if Cam18 made the current edit) or the current
-    /// rendition (otherwise), plus the saved recipe if there is one.
-    func loadForEditing(_ asset: PHAsset) async throws -> (image: CIImage, recipe: StyleRecipe?) {
+    /// rendition (otherwise), plus the saved recipe if there is one. `details`
+    /// says what Photos handed over, for the editor's notice when no recipe
+    /// was found.
+    func loadForEditing(_ asset: PHAsset) async throws -> (image: CIImage, recipe: StyleRecipe?, details: String) {
         let input = try await contentEditingInput(for: asset)
         guard let url = input.value.fullSizeImageURL,
-              let raw = CIImage(contentsOf: url) else {
+              let image = try? renderer.uprightImage(contentsOf: url,
+                                                     orientation: input.value.fullSizeImageOrientation) else {
             throw SaveError.editingInputUnavailable
         }
-        let image = raw.oriented(forExifOrientation: input.value.fullSizeImageOrientation)
         var recipe: StyleRecipe?
-        if let adj = input.value.adjustmentData, Self.canHandle(adj) {
-            recipe = try? StyleRecipe.decode(from: adj.data)
+        var details = "File: \(url.pathExtension.lowercased())\(StillRenderer.isRAW(url) ? " (RAW)" : ""). "
+        if let adj = input.value.adjustmentData {
+            if Self.canHandle(adj) {
+                do {
+                    recipe = try StyleRecipe.decode(from: adj.data)
+                } catch {
+                    details += "Cam18 edit data found but unreadable: \(error)."
+                }
+            } else {
+                details += "Edit data from \(adj.formatIdentifier) \(adj.formatVersion)."
+            }
+        } else {
+            details += "No edit data."
         }
-        return (image, recipe)
+        return (image, recipe, details)
     }
 
     /// Applies (or replaces) a Cam18 edit on an asset. A neutral recipe reverts
     /// the asset to its original instead.
     func applyEdit(to asset: PHAsset, recipe: StyleRecipe) async throws {
         try await Self.ensureAuthorized()
-        if recipe.isNeutral {
+        let input = try await contentEditingInput(for: asset)
+        let isRAW = input.value.fullSizeImageURL.map { StillRenderer.isRAW($0) } ?? false
+        if recipe.isNeutral && !isRAW {
             try await revertToOriginal(asset)
             return
         }
-        let input = try await contentEditingInput(for: asset)
         guard let url = input.value.fullSizeImageURL,
-              let raw = CIImage(contentsOf: url) else {
+              let upright = try? renderer.uprightImage(contentsOf: url,
+                                                       orientation: input.value.fullSizeImageOrientation) else {
             throw SaveError.editingInputUnavailable
         }
-        let upright = raw.oriented(forExifOrientation: input.value.fullSizeImageOrientation)
-        let metadata = (try? Data(contentsOf: url)).map(StillRenderer.metadata(of:)) ?? raw.properties
+        let metadata = (try? Data(contentsOf: url)).map(StillRenderer.metadata(of:)) ?? upright.properties
         let rendered = renderer.render(upright, recipe: recipe)
 
         let output = PHContentEditingOutput(contentEditingInput: input.value)

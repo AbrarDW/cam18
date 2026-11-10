@@ -55,6 +55,8 @@ final class CameraSession: NSObject, @unchecked Sendable {
     private let sessionQueue = DispatchQueue(label: "cam18.session")
     private var currentInput: AVCaptureDeviceInput?
     private var isConfigured = false
+    private var processedDimensions: CMVideoDimensions?
+    private var rawDimensions: CMVideoDimensions?
     private var inFlight: [Int64: PhotoCaptureProcessor] = [:]
     private let inFlightLock = NSLock()
 
@@ -132,12 +134,15 @@ final class CameraSession: NSObject, @unchecked Sendable {
 
     /// Must run inside a configuration block on the session queue.
     private func configureConnections(for device: AVCaptureDevice) {
-        // Pick the largest photo size up to ~24 MP: full quality without the
-        // slow 48 MP path.
-        let dims = device.activeFormat.supportedMaxPhotoDimensions
-            .filter { Int64($0.width) * Int64($0.height) <= 25_000_000 }
-            .max { Int64($0.width) * Int64($0.height) < Int64($1.width) * Int64($1.height) }
-        if let dims { photoOutput.maxPhotoDimensions = dims }
+        // Processed photos use the largest size up to ~24 MP: full quality
+        // without the slow 48 MP path. RAW uses the sensor's largest size,
+        // because it has no multi-frame merging to recover distant detail.
+        func area(_ d: CMVideoDimensions) -> Int64 { Int64(d.width) * Int64(d.height) }
+        let all = device.activeFormat.supportedMaxPhotoDimensions
+        let largest = all.max { area($0) < area($1) }
+        processedDimensions = all.filter { area($0) <= 25_000_000 }.max { area($0) < area($1) } ?? largest
+        rawDimensions = largest
+        if let largest { photoOutput.maxPhotoDimensions = largest }
 
         if let connection = videoOutput.connection(with: .video) {
             // The UI is portrait-only, so preview frames are delivered portrait.
@@ -149,9 +154,25 @@ final class CameraSession: NSObject, @unchecked Sendable {
         }
     }
 
-    /// Captures a photo and returns its encoded HEIC/JPEG data, including the
-    /// camera's EXIF. `rotationAngle` comes from the device's orientation.
-    func capturePhoto(rotationAngle: CGFloat) async throws -> Data {
+    /// The Bayer RAW format the current lens offers, if any. Bayer RAW is the
+    /// sensor data itself; Apple ProRAW is deliberately not used, because it
+    /// is already processed.
+    private var bayerRAWFormat: OSType? {
+        photoOutput.availableRawPhotoPixelFormatTypes.first { AVCapturePhotoOutput.isBayerRAWPixelFormat($0) }
+    }
+
+    /// Whether the current lens can capture RAW.
+    func supportsRAW() async -> Bool {
+        await withCheckedContinuation { cont in
+            sessionQueue.async { [self] in cont.resume(returning: isConfigured && bayerRAWFormat != nil) }
+        }
+    }
+
+    /// Captures a photo and returns its encoded data, including the camera's
+    /// EXIF: a RAW DNG when `raw` is true and the lens supports it, otherwise
+    /// the camera's processed HEIC/JPEG. `rotationAngle` comes from the
+    /// device's orientation.
+    func capturePhoto(rotationAngle: CGFloat, raw: Bool) async throws -> Data {
         try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Data, Error>) in
             sessionQueue.async { [self] in
                 if let connection = photoOutput.connection(with: .video),
@@ -159,13 +180,22 @@ final class CameraSession: NSObject, @unchecked Sendable {
                     connection.videoRotationAngle = rotationAngle
                 }
                 let settings: AVCapturePhotoSettings
-                if photoOutput.availablePhotoCodecTypes.contains(.hevc) {
-                    settings = AVCapturePhotoSettings(format: [AVVideoCodecKey: AVVideoCodecType.hevc])
+                if raw, let format = bayerRAWFormat {
+                    // RAW only: no processed companion image is produced.
+                    settings = AVCapturePhotoSettings(rawPixelFormatType: format)
+                    // Bayer RAW has no multi-frame processing to prioritise, and
+                    // AVFoundation raises an exception for any other value.
+                    settings.photoQualityPrioritization = .speed
+                    if let rawDimensions { settings.maxPhotoDimensions = rawDimensions }
                 } else {
-                    settings = AVCapturePhotoSettings()
+                    if photoOutput.availablePhotoCodecTypes.contains(.hevc) {
+                        settings = AVCapturePhotoSettings(format: [AVVideoCodecKey: AVVideoCodecType.hevc])
+                    } else {
+                        settings = AVCapturePhotoSettings()
+                    }
+                    settings.maxPhotoDimensions = processedDimensions ?? photoOutput.maxPhotoDimensions
+                    settings.photoQualityPrioritization = .balanced
                 }
-                settings.maxPhotoDimensions = photoOutput.maxPhotoDimensions
-                settings.photoQualityPrioritization = .balanced
                 let id = settings.uniqueID
                 let processor = PhotoCaptureProcessor { [weak self] result in
                     self?.removeInFlight(id)

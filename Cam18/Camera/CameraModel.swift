@@ -18,33 +18,72 @@ final class CameraModel {
     @ObservationIgnored private var rotationCoordinator: AVCaptureDevice.RotationCoordinator?
     @ObservationIgnored private var toastTask: Task<Void, Never>?
 
+    @ObservationIgnored let presets = PresetStore()
+
     var recipe: StyleRecipe {
         didSet {
             renderer.setRecipe(recipe)
             AppSettings.saveLastRecipe(recipe)
         }
     }
-    var selectedLook: Look {
+    /// The section of controls that's selected in the tray.
+    var selectedPanel: Panel {
         didSet {
-            recipe.primaryLook = selectedLook
-            UserDefaults.standard.set(selectedLook.rawValue, forKey: AppSettings.selectedLookKey)
+            if let look = selectedPanel.look { recipe.primaryLook = look }
+            UserDefaults.standard.set(selectedPanel.rawValue, forKey: AppSettings.selectedPanelKey)
         }
     }
-    var lens: Lens = .wide
+    /// Whether the selected section's sliders are showing.
+    var panelOpen = false
+    var lens: Lens = .wide {
+        didSet { UserDefaults.standard.set(lens.rawValue, forKey: AppSettings.lensKey) }
+    }
     var availableLenses: [Lens] = []
     var status: Status = .idle
     var isCapturing = false
     var isSaving = false
     var shutterFlash = false
     var toast: String?
+    /// Whether the current lens can capture RAW.
+    var rawAvailable = false
+    /// The most recent photo taken this session, for the thumbnail button.
+    var lastAssetID: String?
+    var lastThumbnail: UIImage?
 
     init() {
+        let defaults = UserDefaults.standard
         let recipe = AppSettings.loadLastRecipe()
         self.recipe = recipe
-        self.selectedLook = UserDefaults.standard.string(forKey: AppSettings.selectedLookKey)
-            .flatMap(Look.init(rawValue:)) ?? recipe.primaryLook
+        self.selectedPanel = defaults.string(forKey: AppSettings.selectedPanelKey)
+            .flatMap(Panel.init(rawValue:)) ?? .style
+        if let saved = defaults.string(forKey: AppSettings.lensKey).flatMap(Lens.init(rawValue:)) {
+            lens = saved
+        }
         renderer.setRecipe(recipe)
     }
+
+    // MARK: Settings
+
+    func select(style: ColorStyle) {
+        var r = recipe
+        AppSettings.select(style, in: &r)
+        recipe = r
+    }
+
+    func apply(_ preset: Preset) {
+        var r = preset.recipe
+        r.primaryLook = recipe.primaryLook
+        recipe = r
+    }
+
+    /// Switches off everything in the selected section.
+    func resetSelectedPanel() {
+        var r = recipe
+        selectedPanel.reset(&r)
+        recipe = r
+    }
+
+    // MARK: Camera
 
     func start() async {
         guard status != .running else { session.start(); return }
@@ -63,6 +102,7 @@ final class CameraModel {
             updateRotationCoordinator()
             session.start()
             status = .running
+            rawAvailable = await session.supportsRAW()
         } catch {
             status = .unavailable(error.localizedDescription)
         }
@@ -85,6 +125,7 @@ final class CameraModel {
                 showToast(error.localizedDescription)
             }
             updateRotationCoordinator()
+            rawAvailable = await session.supportsRAW()
             renderer.setFrozen(false)
         }
     }
@@ -109,18 +150,24 @@ final class CameraModel {
         seeded.grainSeed = UInt32.random(in: 0...UInt32.max)
         let recipe = seeded
         let bake = AppSettings.bakeInLook
+        let raw = AppSettings.captureRAW && rawAvailable
         let session = self.session
 
         Task {
             do {
-                let data = try await session.capturePhoto(rotationAngle: angle)
+                let data = try await session.capturePhoto(rotationAngle: angle, raw: raw)
                 isCapturing = false
                 isSaving = true
                 defer { isSaving = false }
-                _ = try await Task.detached(priority: .userInitiated) {
-                    try await PhotoSaver.shared.save(photoData: data, recipe: recipe, bakeInLook: bake)
+                let saved = try await Task.detached(priority: .userInitiated) { () -> (String, UncheckedSendable<UIImage?>) in
+                    let id = try await PhotoSaver.shared.save(photoData: data, recipe: recipe, bakeInLook: bake)
+                    let thumbnail = StillRenderer.shared.thumbnail(from: data, recipe: recipe)
+                    return (id, UncheckedSendable(thumbnail))
                 }.value
-                showToast(bake ? "Saved with look baked in" : "Saved · look editable")
+                AppSettings.rememberStyleIntensity(of: recipe)
+                lastAssetID = saved.0
+                if let thumbnail = saved.1.value { lastThumbnail = thumbnail }
+                showToast((raw ? "RAW · " : "") + (bake ? "Saved with look baked in" : "Saved · look editable"))
             } catch {
                 isCapturing = false
                 showToast(error.localizedDescription)

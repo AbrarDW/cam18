@@ -28,25 +28,56 @@ enum StylePipeline {
         max(Double(min(extent.width, extent.height)) / 1000.0, 0.05)
     }
 
+    /// Crops `mask`, which covers the whole of `full`, down to the part that
+    /// covers `crop`. Masks can be any size, so this works in proportions.
+    static func cropMask(_ mask: CIImage, from full: CGRect, to crop: CGRect) -> CIImage {
+        let m = mask.extent
+        guard full.width > 0, full.height > 0, !m.isInfinite, crop != full else { return mask }
+        let sx = m.width / full.width, sy = m.height / full.height
+        return mask.cropped(to: CGRect(x: m.minX + (crop.minX - full.minX) * sx,
+                                       y: m.minY + (crop.minY - full.minY) * sy,
+                                       width: crop.width * sx, height: crop.height * sy))
+    }
+
+    /// Crops to the recipe's aspect ratio, then applies the looks. A cropped
+    /// result has its origin at zero; an uncropped one keeps the input's extent.
+    /// `options.personMask` always describes the uncropped input.
     static func render(_ input: CIImage, recipe: StyleRecipe, options: RenderOptions = .init()) -> CIImage {
         let recipe = recipe.sanitized()
-        let extent = input.extent
-        guard !recipe.isNeutral, extent.width >= 1, extent.height >= 1, !extent.isInfinite else {
-            return input
+        let full = input.extent
+        guard full.width >= 1, full.height >= 1, !full.isInfinite else { return input }
+
+        var source = input
+        var personMask = options.personMask
+        let crop = recipe.aspect.cropRect(in: full)
+        if crop != full {
+            source = input.cropped(to: crop)
+                .transformed(by: CGAffineTransform(translationX: -crop.minX, y: -crop.minY))
+            personMask = personMask.map { cropMask($0, from: full, to: crop) }
         }
+        guard recipe.hasLook else {
+            return crop == full ? input : source.settingProperties(input.properties)
+        }
+        let extent = source.extent
         let u = unit(for: extent)
 
         // Work in perceptual (gamma-encoded) values so tone curves and the
         // kernels' luminance thresholds behave like a photographer expects.
-        var image = input.applyingFilter("CILinearToSRGBToneCurve")
+        var image = source.applyingFilter("CILinearToSRGBToneCurve")
 
         if recipe.softSkinIntensity > 0 {
             image = SoftSkinLook.apply(to: image, intensity: recipe.softSkinIntensity,
-                                       personMask: options.personMask, unit: u)
+                                       personMask: personMask, unit: u)
+        }
+        if recipe.isStyleActive {
+            image = recipe.colorStyle.apply(to: image, intensity: recipe.styleIntensity)
         }
         if recipe.toneColorIntensity > 0 {
             image = ToneColorLook.apply(to: image, tone: recipe.tone, color: recipe.color,
                                         intensity: recipe.toneColorIntensity)
+        }
+        if recipe.hasAdjustments {
+            image = AdjustLook.apply(to: image, recipe: recipe, unit: u)
         }
         if recipe.filmIntensity > 0 {
             image = FilmLook.apply(to: image, intensity: recipe.filmIntensity, unit: u)

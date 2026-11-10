@@ -2,7 +2,8 @@ import CoreImage
 import Photos
 import SwiftUI
 
-/// Reopens a photo from the library and lets you change or remove its look.
+/// Reopens a photo from the library and lets you change or remove its look
+/// and its aspect ratio.
 /// For photos Cam18 saved in editable mode, this starts from the untouched
 /// original and the saved recipe.
 struct EditorView: View {
@@ -15,7 +16,9 @@ struct EditorView: View {
     @State private var personMask: CIImage?
     @State private var recipe = StyleRecipe.neutral
     @State private var hadCam18Edit = false
-    @State private var selectedLook: Look = .film
+    @State private var loadDetails = ""
+    @State private var panel: Panel = .style
+    @State private var panelOpen = true
     @State private var rendered: UIImage?
     @State private var renderTask: Task<Void, Never>?
     @State private var isSaving = false
@@ -43,10 +46,32 @@ struct EditorView: View {
                 }
                 .accessibilityHint("Touch and hold to compare with the original")
 
-                LookControls(look: selectedLook, recipe: $recipe)
-                    .frame(height: selectedLook == .toneColor ? 132 : 72)
-                    .padding(.horizontal, 20)
-                LookPicker(selected: $selectedLook, recipe: recipe)
+                if original != nil, !hadCam18Edit {
+                    Label("This photo has no saved Cam18 look (it was baked in, or taken elsewhere), so changes go on top of what you see. \(loadDetails)",
+                          systemImage: "info.circle")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                        .padding(.horizontal, 16)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+
+                Picker("Aspect ratio", selection: $recipe.aspect) {
+                    ForEach(AspectRatio.allCases) { ratio in
+                        Text(ratio == .full ? "Full" : ratio.label).tag(ratio)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .padding(.horizontal, 16)
+
+                if panelOpen {
+                    PanelControls(panel: panel, recipe: $recipe) { style in
+                        AppSettings.select(style, in: &recipe)
+                    }
+                    .padding(.horizontal, 16).padding(.vertical, 14)
+                    .glassCard()
+                    .padding(.horizontal, 10)
+                }
+                PanelPicker(selected: $panel, isOpen: $panelOpen, recipe: recipe)
                     .padding(.bottom, 8)
             }
             .background(Color.black)
@@ -63,7 +88,10 @@ struct EditorView: View {
                 ToolbarItem(placement: .bottomBar) {
                     if hadCam18Edit || !recipe.isNeutral {
                         Button("Remove Look", role: .destructive) {
-                            recipe = .neutral
+                            // Keep the crop: it's a framing choice, not part of the look.
+                            var cleared = StyleRecipe.neutral
+                            cleared.aspect = recipe.aspect
+                            recipe = cleared
                         }
                     }
                 }
@@ -72,7 +100,9 @@ struct EditorView: View {
         }
         .task { await load() }
         .onChange(of: recipe) { _, _ in scheduleRender() }
-        .onChange(of: selectedLook) { _, look in recipe.primaryLook = look }
+        .onChange(of: panel) { _, panel in
+            if let look = panel.look { recipe.primaryLook = look }
+        }
     }
 
     // MARK: Loading and rendering
@@ -86,16 +116,17 @@ struct EditorView: View {
             }
             self.asset = asset
             let boxedAsset = UncheckedSendable(asset)
-            let loaded = try await Task.detached(priority: .userInitiated) { () -> UncheckedSendable<(CIImage, CIImage, StyleRecipe?)> in
-                let (image, recipe) = try await PhotoSaver.shared.loadForEditing(boxedAsset.value)
-                return UncheckedSendable((image, EditorView.makeProxy(image), recipe))
+            let loaded = try await Task.detached(priority: .userInitiated) { () -> UncheckedSendable<(CIImage, CIImage, StyleRecipe?, String)> in
+                let (image, recipe, details) = try await PhotoSaver.shared.loadForEditing(boxedAsset.value)
+                return UncheckedSendable((image, EditorView.makeProxy(image), recipe, details))
             }.value
+            loadDetails = loaded.value.3
             original = loaded.value.0
             proxy = loaded.value.1
             if let saved = loaded.value.2 {
                 recipe = saved
                 hadCam18Edit = true
-                selectedLook = saved.primaryLook
+                panel = Panel.allCases.first { $0.isActive(in: saved) } ?? .style
             } else {
                 recipe = StyleRecipe(look: .film, intensity: 0)
             }
@@ -105,12 +136,21 @@ struct EditorView: View {
         }
     }
 
+    /// A screen-sized copy of the photo, rendered once so slider changes don't
+    /// have to decode (or, for RAW, develop) the full photo every time.
     nonisolated static func makeProxy(_ image: CIImage) -> CIImage {
         let e = image.extent
         let scale = min(1, 1600 / max(e.width, e.height))
-        return image
+        let scaled = image
             .transformed(by: CGAffineTransform(translationX: -e.minX, y: -e.minY))
             .transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+        let bounds = CGRect(x: 0, y: 0, width: (e.width * scale).rounded(.down), height: (e.height * scale).rounded(.down))
+        if bounds.width >= 1, bounds.height >= 1,
+           let space = CGColorSpace(name: CGColorSpace.displayP3),
+           let cg = StillRenderer.shared.context.createCGImage(scaled, from: bounds, format: .RGBA8, colorSpace: space) {
+            return CIImage(cgImage: cg)
+        }
+        return scaled
     }
 
     private func scheduleRender() {

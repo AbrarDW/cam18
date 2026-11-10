@@ -118,12 +118,17 @@ final class PreviewRenderer: NSObject, AVCaptureVideoDataOutputSampleBufferDeleg
     /// `draw` and by the preview performance test.
     func previewImage(for frame: CIImage, recipe: StyleRecipe, mask: CIImage?, frameIndex: UInt64,
                       size: CGSize) -> CIImage {
-        let fitted = Self.fit(frame, into: size)
+        // Crop first, so the viewfinder shows exactly the framing of the photo.
+        let crop = recipe.aspect.cropRect(in: frame.extent)
+        let croppedMask = mask.map { StylePipeline.cropMask($0, from: frame.extent, to: crop) }
+        var looks = recipe
+        looks.aspect = .full
+        let fitted = Self.fit(frame.cropped(to: crop), into: size)
         let origin = fitted.extent.origin
         let atZero = fitted.transformed(by: CGAffineTransform(translationX: -origin.x, y: -origin.y))
-        let styled = StylePipeline.render(atZero, recipe: recipe,
+        let styled = StylePipeline.render(atZero, recipe: looks,
                                           options: RenderOptions(isPreview: true, frameIndex: frameIndex,
-                                                                 personMask: mask))
+                                                                 personMask: croppedMask))
         let background = CIImage(color: .black).cropped(to: CGRect(origin: .zero, size: size))
         return styled.transformed(by: CGAffineTransform(translationX: origin.x, y: origin.y))
             .composited(over: background)
