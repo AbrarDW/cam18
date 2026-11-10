@@ -16,6 +16,7 @@ struct EditorView: View {
     @State private var personMask: CIImage?
     @State private var recipe = StyleRecipe.neutral
     @State private var hadCam18Edit = false
+    @State private var loadDetails = ""
     @State private var panel: Panel = .style
     @State private var panelOpen = true
     @State private var rendered: UIImage?
@@ -46,7 +47,7 @@ struct EditorView: View {
                 .accessibilityHint("Touch and hold to compare with the original")
 
                 if original != nil, !hadCam18Edit {
-                    Label("This photo has no saved Cam18 look (it was baked in, or taken elsewhere), so changes go on top of what you see.",
+                    Label("This photo has no saved Cam18 look (it was baked in, or taken elsewhere), so changes go on top of what you see. \(loadDetails)",
                           systemImage: "info.circle")
                         .font(.caption)
                         .foregroundStyle(.orange)
@@ -115,10 +116,11 @@ struct EditorView: View {
             }
             self.asset = asset
             let boxedAsset = UncheckedSendable(asset)
-            let loaded = try await Task.detached(priority: .userInitiated) { () -> UncheckedSendable<(CIImage, CIImage, StyleRecipe?)> in
-                let (image, recipe) = try await PhotoSaver.shared.loadForEditing(boxedAsset.value)
-                return UncheckedSendable((image, EditorView.makeProxy(image), recipe))
+            let loaded = try await Task.detached(priority: .userInitiated) { () -> UncheckedSendable<(CIImage, CIImage, StyleRecipe?, String)> in
+                let (image, recipe, details) = try await PhotoSaver.shared.loadForEditing(boxedAsset.value)
+                return UncheckedSendable((image, EditorView.makeProxy(image), recipe, details))
             }.value
+            loadDetails = loaded.value.3
             original = loaded.value.0
             proxy = loaded.value.1
             if let saved = loaded.value.2 {

@@ -105,8 +105,10 @@ final class PhotoSaver: @unchecked Sendable {
     }
 
     /// Loads the original image (if Cam18 made the current edit) or the current
-    /// rendition (otherwise), plus the saved recipe if there is one.
-    func loadForEditing(_ asset: PHAsset) async throws -> (image: CIImage, recipe: StyleRecipe?) {
+    /// rendition (otherwise), plus the saved recipe if there is one. `details`
+    /// says what Photos handed over, for the editor's notice when no recipe
+    /// was found.
+    func loadForEditing(_ asset: PHAsset) async throws -> (image: CIImage, recipe: StyleRecipe?, details: String) {
         let input = try await contentEditingInput(for: asset)
         guard let url = input.value.fullSizeImageURL,
               let image = try? renderer.uprightImage(contentsOf: url,
@@ -114,10 +116,21 @@ final class PhotoSaver: @unchecked Sendable {
             throw SaveError.editingInputUnavailable
         }
         var recipe: StyleRecipe?
-        if let adj = input.value.adjustmentData, Self.canHandle(adj) {
-            recipe = try? StyleRecipe.decode(from: adj.data)
+        var details = "File: \(url.pathExtension.lowercased())\(StillRenderer.isRAW(url) ? " (RAW)" : ""). "
+        if let adj = input.value.adjustmentData {
+            if Self.canHandle(adj) {
+                do {
+                    recipe = try StyleRecipe.decode(from: adj.data)
+                } catch {
+                    details += "Cam18 edit data found but unreadable: \(error)."
+                }
+            } else {
+                details += "Edit data from \(adj.formatIdentifier) \(adj.formatVersion)."
+            }
+        } else {
+            details += "No edit data."
         }
-        return (image, recipe)
+        return (image, recipe, details)
     }
 
     /// Applies (or replaces) a Cam18 edit on an asset. A neutral recipe reverts
