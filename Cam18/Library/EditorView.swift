@@ -45,6 +45,15 @@ struct EditorView: View {
                 }
                 .accessibilityHint("Touch and hold to compare with the original")
 
+                if original != nil, !hadCam18Edit {
+                    Label("This photo has no saved Cam18 look (it was baked in, or taken elsewhere), so changes go on top of what you see.",
+                          systemImage: "info.circle")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                        .padding(.horizontal, 16)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+
                 Picker("Aspect ratio", selection: $recipe.aspect) {
                     ForEach(AspectRatio.allCases) { ratio in
                         Text(ratio == .full ? "Full" : ratio.label).tag(ratio)

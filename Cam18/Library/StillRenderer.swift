@@ -57,15 +57,25 @@ final class StillRenderer: @unchecked Sendable {
         return image.oriented(forExifOrientation: orientation)
     }
 
-    /// Cam18's RAW development: demosaic and colour only. Everything Apple
-    /// would add to make the picture look "finished" is turned down to zero,
-    /// except a little colour-noise cleanup, without which every photo shows
-    /// coloured speckles.
+    /// The most pixels a developed RAW photo keeps (about 24 MP, the size of
+    /// the camera's processed photos, which the pipeline is tuned for).
+    static let maxDevelopedPixels: CGFloat = 24_500_000
+
+    /// Cam18's RAW development: demosaic, colour and the decoder's own
+    /// capture sharpening, which a demosaiced picture needs to resolve fine
+    /// detail. The steps that make a photo look "finished" are off: no
+    /// luminance noise reduction and no local tone mapping. A little
+    /// colour-noise cleanup stays, without which every photo shows coloured
+    /// speckles. A 48 MP capture is scaled to about 24 MP, which keeps the
+    /// extra detail without doubling the work of every look.
     static func develop(_ filter: CIRAWFilter) -> CIImage? {
         if filter.isLuminanceNoiseReductionSupported { filter.luminanceNoiseReductionAmount = 0 }
         if filter.isColorNoiseReductionSupported { filter.colorNoiseReductionAmount = 0.25 }
-        if filter.isSharpnessSupported { filter.sharpnessAmount = 0 }
         if filter.isLocalToneMapSupported { filter.localToneMapAmount = 0 }
+        let pixels = filter.nativeSize.width * filter.nativeSize.height
+        if pixels > maxDevelopedPixels * 1.05 {
+            filter.scaleFactor = Float((maxDevelopedPixels / pixels).squareRoot())
+        }
         filter.extendedDynamicRangeAmount = 0
         guard let image = filter.outputImage, !image.extent.isInfinite, !image.extent.isEmpty else { return nil }
         // Later stages expect the origin at zero.
