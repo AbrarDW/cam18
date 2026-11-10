@@ -9,7 +9,8 @@ extension View {
         if selected {
             self.foregroundStyle(Color.black).background(Color.white, in: Capsule())
         } else {
-            self.foregroundStyle(Color.white).glassEffect(.regular.interactive(), in: .capsule)
+            self.foregroundStyle(Color.white).contentShape(Capsule())
+                .glassEffect(.regular.interactive(), in: .capsule)
         }
     }
 
@@ -530,10 +531,13 @@ struct LensPicker: View {
                 } label: {
                     Text(lens.label)
                         .font(.caption.weight(.bold))
-                        .frame(minWidth: 40, minHeight: 32)
+                        .frame(minWidth: 44, minHeight: 36)
                         .padding(.horizontal, 4)
                         .foregroundStyle(lens == selected ? Color.black : Color.white)
                         .background(lens == selected ? Color.white : Color.clear, in: Capsule())
+                        // Without this only the glyphs are tappable, and "1×"
+                        // is a very small target.
+                        .contentShape(Capsule())
                 }
                 .buttonStyle(.plain)
                 .accessibilityAddTraits(lens == selected ? .isSelected : [])
