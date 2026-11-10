@@ -125,12 +125,21 @@ struct EditorView: View {
         }
     }
 
+    /// A screen-sized copy of the photo, rendered once so slider changes don't
+    /// have to decode (or, for RAW, develop) the full photo every time.
     nonisolated static func makeProxy(_ image: CIImage) -> CIImage {
         let e = image.extent
         let scale = min(1, 1600 / max(e.width, e.height))
-        return image
+        let scaled = image
             .transformed(by: CGAffineTransform(translationX: -e.minX, y: -e.minY))
             .transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+        let bounds = CGRect(x: 0, y: 0, width: (e.width * scale).rounded(.down), height: (e.height * scale).rounded(.down))
+        if bounds.width >= 1, bounds.height >= 1,
+           let space = CGColorSpace(name: CGColorSpace.displayP3),
+           let cg = StillRenderer.shared.context.createCGImage(scaled, from: bounds, format: .RGBA8, colorSpace: space) {
+            return CIImage(cgImage: cg)
+        }
+        return scaled
     }
 
     private func scheduleRender() {

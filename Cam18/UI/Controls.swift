@@ -57,6 +57,30 @@ struct ModeBadge: View {
     }
 }
 
+/// Switches between RAW capture (sensor data, developed by Cam18) and the
+/// camera's own processed photo. Dimmed when the current lens has no RAW.
+struct RAWToggle: View {
+    @Binding var isOn: Bool
+    let isAvailable: Bool
+
+    var body: some View {
+        Button {
+            isOn.toggle()
+        } label: {
+            Text("RAW")
+                .font(.caption.weight(.heavy))
+                .strikethrough(isOn && !isAvailable)
+                .padding(.horizontal, 12).frame(height: 36)
+                .chip(selected: isOn && isAvailable)
+        }
+        .buttonStyle(.plain)
+        .sensoryFeedback(.selection, trigger: isOn)
+        .accessibilityLabel("RAW capture")
+        .accessibilityValue(!isOn ? "Off" : isAvailable ? "On" : "On, but not available on this lens")
+        .accessibilityHint("When on, photos skip the camera's own processing.")
+    }
+}
+
 /// Menu for the photo's shape.
 struct AspectMenu: View {
     @Binding var aspect: AspectRatio

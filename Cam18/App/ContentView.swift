@@ -10,6 +10,7 @@ struct ContentView: View {
     @State private var model: CameraModel
     @AppStorage(AppSettings.bakeInLookKey) private var bakeInLook = false
     @AppStorage(AppSettings.showGridKey) private var showGrid = false
+    @AppStorage(AppSettings.captureRAWKey) private var captureRAW = true
     @State private var pickerItem: PhotosPickerItem?
     @State private var editing: EditableAsset?
     @Environment(\.scenePhase) private var scenePhase
@@ -83,6 +84,7 @@ struct ContentView: View {
         HStack(spacing: 8) {
             ModeBadge(bakeInLook: $bakeInLook)
             Spacer()
+            RAWToggle(isOn: $captureRAW, isAvailable: model.rawAvailable || demoImage != nil)
             AspectMenu(aspect: $model.recipe.aspect)
             GridToggle(isOn: $showGrid)
         }

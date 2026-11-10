@@ -7,6 +7,7 @@ A film-style camera app for iPhone 17 Pro (iOS 26 or later). Pick a **colour sty
 - **Style** (12 colour styles): Standard, Warm Gold, Amber, Rose, Cool Blue, Teal & Orange, Vivid, Faded, Moody, Pastel, Mono and Mono Contrast. Each has an intensity slider and remembers the value you last used. The Tone & Color pad sits in the same section.
 - **Adjust**: Exposure, Contrast, Highlights, Shadows, Fade, Saturation, Warmth, Tint, Vignette and Sharpness. Each runs from −100 to +100; double-tap a name to reset it.
 - **Looks**: Film, Glow, Soft Skin and Grain, each with its own intensity.
+- **RAW** (top bar, on by default): photos are captured as RAW sensor data, with none of Apple's noise reduction, sharpening, tone mapping or multi-frame merging, and developed by Cam18. Switch it off to use the camera's processed photo instead. The button is struck through on a lens that has no RAW; that lens then uses the processed photo.
 - **Aspect ratio** (top bar): 4:3, 16:9, 3:2 or 1:1. It follows how you hold the phone, so 16:9 becomes 9:16 in portrait.
 - **Presets** (strip above the shutter): tap **Save** to store the current style, looks, adjustments and aspect ratio under a name. Tap a preset to apply it; touch and hold to update, rename or delete it.
 - The app reopens with the settings, lens and section you used last.
@@ -15,6 +16,7 @@ A film-style camera app for iPhone 17 Pro (iOS 26 or later). Pick a **colour sty
 
 - **One pipeline.** `StylePipeline` renders both the live preview, at screen resolution, and full-resolution stills. Every blur radius and grain size scales with image size, so the photo matches what you saw. A unit test checks this.
 - **Colour styles are lookup tables** (LUTs) generated in code from a few numbers per style (`ColorStyle.swift`), so there are no LUT files to ship and adding a style is a few lines.
+- **RAW capture.** With RAW on, the camera delivers a Bayer RAW DNG (not Apple ProRAW, which is already processed). `StillRenderer.develop` turns it into a picture with luminance noise reduction, sharpening and local tone mapping at zero and only light colour-noise cleanup; the looks are applied to that. In editable mode the DNG is the original that is kept. The live preview still comes from the camera's video feed, which the phone processes, so a RAW photo can differ a little from the viewfinder in brightness, colour and noise. RAW photos are 12 MP and roughly 15 to 25 MB each.
 - **The crop is part of the recipe**, not cut from the file. In editable mode the full 4:3 original is kept, so the shape can be changed later in the editor and **Revert** in Photos brings back the whole frame. The crop runs before the looks in both preview and photo.
 - **Bake in look** (the badge at the top left; tap it to switch, off by default, remembered between launches). The badge shows which mode the next photo will use:
   - **EDITABLE** (off): the untouched original is saved with the look applied as an edit. The JSON recipe is stored as `PHAdjustmentData`. Opening the photo again from the library button lets you change or remove the look, and **Revert** in Photos restores the original.
@@ -66,6 +68,9 @@ Version 1 (all passed):
 
 Styles, Adjust, aspect ratio, presets and the new UI (not yet checked):
 
+- [ ] RAW on: photos save from every rear lens, upright and sideways, and look right in Photos (editable and baked).
+- [ ] RAW on: reopen a RAW photo in Cam18, change the look and save.
+- [ ] RAW on vs off: compare the same scene; RAW should show more grain and less sharpening.
 - [ ] Each aspect ratio: the saved photo has the framing the viewfinder showed, held upright and sideways.
 - [ ] Editable mode: reopen a cropped photo and change its aspect ratio; Revert in Photos restores the full 4:3 frame.
 - [ ] Each colour style and Adjust slider looks the same in the saved photo as in the preview.
@@ -76,4 +81,4 @@ Styles, Adjust, aspect ratio, presets and the new UI (not yet checked):
 
 ## Out of scope for v1
 
-Video, RAW/ProRAW capture, a Photos editing extension, and App Store distribution.
+Video, Apple ProRAW, 48 MP RAW, a Photos editing extension, and App Store distribution.

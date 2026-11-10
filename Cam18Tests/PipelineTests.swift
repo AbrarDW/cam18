@@ -393,6 +393,20 @@ final class PipelineTests: XCTestCase {
         TestSupport.writePNG(out, name: "portrait-full-recipe")
     }
 
+    /// Processed photos must keep taking the plain decode path; only RAW
+    /// files go through Cam18's own development.
+    func testProcessedPhotosAreNotTreatedAsRAW() throws {
+        let url = try TestSupport.sampleURL("scene")
+        let data = try Data(contentsOf: url)
+        XCTAssertFalse(StillRenderer.isRAW(data))
+        XCTAssertFalse(StillRenderer.isRAW(url))
+        XCTAssertFalse(StillRenderer.isRAW(Data([1, 2, 3])))
+        let renderer = StillRenderer(context: TestSupport.context)
+        XCTAssertEqual(try renderer.uprightImage(contentsOf: url, orientation: 1).extent,
+                       try renderer.uprightImage(from: data).extent)
+        XCTAssertEqual(try renderer.uprightImage(contentsOf: url, orientation: 6).extent.width, 900)
+    }
+
     // MARK: Helpers
 
     private func contactSheet(_ rows: [[CIImage]]) -> CIImage {

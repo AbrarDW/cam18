@@ -149,9 +149,25 @@ final class CameraSession: NSObject, @unchecked Sendable {
         }
     }
 
-    /// Captures a photo and returns its encoded HEIC/JPEG data, including the
-    /// camera's EXIF. `rotationAngle` comes from the device's orientation.
-    func capturePhoto(rotationAngle: CGFloat) async throws -> Data {
+    /// The Bayer RAW format the current lens offers, if any. Bayer RAW is the
+    /// sensor data itself; Apple ProRAW is deliberately not used, because it
+    /// is already processed.
+    private var bayerRAWFormat: OSType? {
+        photoOutput.availableRawPhotoPixelFormatTypes.first { AVCapturePhotoOutput.isBayerRAWPixelFormat($0) }
+    }
+
+    /// Whether the current lens can capture RAW.
+    func supportsRAW() async -> Bool {
+        await withCheckedContinuation { cont in
+            sessionQueue.async { [self] in cont.resume(returning: isConfigured && bayerRAWFormat != nil) }
+        }
+    }
+
+    /// Captures a photo and returns its encoded data, including the camera's
+    /// EXIF: a RAW DNG when `raw` is true and the lens supports it, otherwise
+    /// the camera's processed HEIC/JPEG. `rotationAngle` comes from the
+    /// device's orientation.
+    func capturePhoto(rotationAngle: CGFloat, raw: Bool) async throws -> Data {
         try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Data, Error>) in
             sessionQueue.async { [self] in
                 if let connection = photoOutput.connection(with: .video),
@@ -159,12 +175,17 @@ final class CameraSession: NSObject, @unchecked Sendable {
                     connection.videoRotationAngle = rotationAngle
                 }
                 let settings: AVCapturePhotoSettings
-                if photoOutput.availablePhotoCodecTypes.contains(.hevc) {
-                    settings = AVCapturePhotoSettings(format: [AVVideoCodecKey: AVVideoCodecType.hevc])
+                if raw, let format = bayerRAWFormat {
+                    // RAW only: no processed companion image is produced.
+                    settings = AVCapturePhotoSettings(rawPixelFormatType: format)
                 } else {
-                    settings = AVCapturePhotoSettings()
+                    if photoOutput.availablePhotoCodecTypes.contains(.hevc) {
+                        settings = AVCapturePhotoSettings(format: [AVVideoCodecKey: AVVideoCodecType.hevc])
+                    } else {
+                        settings = AVCapturePhotoSettings()
+                    }
+                    settings.maxPhotoDimensions = photoOutput.maxPhotoDimensions
                 }
-                settings.maxPhotoDimensions = photoOutput.maxPhotoDimensions
                 settings.photoQualityPrioritization = .balanced
                 let id = settings.uniqueID
                 let processor = PhotoCaptureProcessor { [weak self] result in

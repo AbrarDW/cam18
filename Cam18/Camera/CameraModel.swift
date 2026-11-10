@@ -44,6 +44,8 @@ final class CameraModel {
     var isSaving = false
     var shutterFlash = false
     var toast: String?
+    /// Whether the current lens can capture RAW.
+    var rawAvailable = false
     /// The most recent photo taken this session, for the thumbnail button.
     var lastAssetID: String?
     var lastThumbnail: UIImage?
@@ -100,6 +102,7 @@ final class CameraModel {
             updateRotationCoordinator()
             session.start()
             status = .running
+            rawAvailable = await session.supportsRAW()
         } catch {
             status = .unavailable(error.localizedDescription)
         }
@@ -122,6 +125,7 @@ final class CameraModel {
                 showToast(error.localizedDescription)
             }
             updateRotationCoordinator()
+            rawAvailable = await session.supportsRAW()
             renderer.setFrozen(false)
         }
     }
@@ -146,11 +150,12 @@ final class CameraModel {
         seeded.grainSeed = UInt32.random(in: 0...UInt32.max)
         let recipe = seeded
         let bake = AppSettings.bakeInLook
+        let raw = AppSettings.captureRAW && rawAvailable
         let session = self.session
 
         Task {
             do {
-                let data = try await session.capturePhoto(rotationAngle: angle)
+                let data = try await session.capturePhoto(rotationAngle: angle, raw: raw)
                 isCapturing = false
                 isSaving = true
                 defer { isSaving = false }
@@ -162,7 +167,7 @@ final class CameraModel {
                 AppSettings.rememberStyleIntensity(of: recipe)
                 lastAssetID = saved.0
                 if let thumbnail = saved.1.value { lastThumbnail = thumbnail }
-                showToast(bake ? "Saved with look baked in" : "Saved · look editable")
+                showToast((raw ? "RAW · " : "") + (bake ? "Saved with look baked in" : "Saved · look editable"))
             } catch {
                 isCapturing = false
                 showToast(error.localizedDescription)

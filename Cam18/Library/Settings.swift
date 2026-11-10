@@ -14,6 +14,14 @@ enum AppSettings {
     /// Intensity last used with each colour style, by style raw value.
     static let styleIntensitiesKey = "styleIntensities"
 
+    /// When true (the default), photos are captured as RAW sensor data and
+    /// developed by Cam18. When false, the camera's processed photo is used.
+    static let captureRAWKey = "captureRAW"
+
+    static var captureRAW: Bool {
+        UserDefaults.standard.object(forKey: captureRAWKey) as? Bool ?? true
+    }
+
     static var bakeInLook: Bool {
         get { UserDefaults.standard.bool(forKey: bakeInLookKey) }
         set { UserDefaults.standard.set(newValue, forKey: bakeInLookKey) }

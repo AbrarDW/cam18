@@ -11,6 +11,8 @@ struct UncheckedSendable<Value>: @unchecked Sendable {
 }
 
 /// Saves photos through PhotoKit in one of two ways:
+/// Photos arrive either as RAW (DNG, the sensor data with none of Apple's
+/// processing) or as the camera's processed HEIC.
 /// - **Editable** (default): the untouched original is saved, then an edit is
 ///   applied with the rendered look and the JSON recipe as `PHAdjustmentData`.
 ///   Cam18 can reopen the recipe, and Revert in Photos restores the original.
@@ -74,7 +76,9 @@ final class PhotoSaver: @unchecked Sendable {
 
     func saveEditable(photoData: Data, recipe: StyleRecipe) async throws -> String {
         let identifier = try await createAsset(data: photoData)
-        guard !recipe.isNeutral else { return identifier }
+        // A RAW original always gets Cam18's rendering on top, even with no
+        // look, so Photos shows our development instead of its own.
+        guard !recipe.isNeutral || StillRenderer.isRAW(photoData) else { return identifier }
         guard let asset = PHAsset.fetchAssets(withLocalIdentifiers: [identifier], options: nil).firstObject else {
             throw SaveError.assetMissing
         }
@@ -105,10 +109,10 @@ final class PhotoSaver: @unchecked Sendable {
     func loadForEditing(_ asset: PHAsset) async throws -> (image: CIImage, recipe: StyleRecipe?) {
         let input = try await contentEditingInput(for: asset)
         guard let url = input.value.fullSizeImageURL,
-              let raw = CIImage(contentsOf: url) else {
+              let image = try? renderer.uprightImage(contentsOf: url,
+                                                     orientation: input.value.fullSizeImageOrientation) else {
             throw SaveError.editingInputUnavailable
         }
-        let image = raw.oriented(forExifOrientation: input.value.fullSizeImageOrientation)
         var recipe: StyleRecipe?
         if let adj = input.value.adjustmentData, Self.canHandle(adj) {
             recipe = try? StyleRecipe.decode(from: adj.data)
@@ -120,17 +124,18 @@ final class PhotoSaver: @unchecked Sendable {
     /// the asset to its original instead.
     func applyEdit(to asset: PHAsset, recipe: StyleRecipe) async throws {
         try await Self.ensureAuthorized()
-        if recipe.isNeutral {
+        let input = try await contentEditingInput(for: asset)
+        let isRAW = input.value.fullSizeImageURL.map { StillRenderer.isRAW($0) } ?? false
+        if recipe.isNeutral && !isRAW {
             try await revertToOriginal(asset)
             return
         }
-        let input = try await contentEditingInput(for: asset)
         guard let url = input.value.fullSizeImageURL,
-              let raw = CIImage(contentsOf: url) else {
+              let upright = try? renderer.uprightImage(contentsOf: url,
+                                                       orientation: input.value.fullSizeImageOrientation) else {
             throw SaveError.editingInputUnavailable
         }
-        let upright = raw.oriented(forExifOrientation: input.value.fullSizeImageOrientation)
-        let metadata = (try? Data(contentsOf: url)).map(StillRenderer.metadata(of:)) ?? raw.properties
+        let metadata = (try? Data(contentsOf: url)).map(StillRenderer.metadata(of:)) ?? upright.properties
         let rendered = renderer.render(upright, recipe: recipe)
 
         let output = PHContentEditingOutput(contentEditingInput: input.value)
