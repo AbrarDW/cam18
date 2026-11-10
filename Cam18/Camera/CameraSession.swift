@@ -178,6 +178,9 @@ final class CameraSession: NSObject, @unchecked Sendable {
                 if raw, let format = bayerRAWFormat {
                     // RAW only: no processed companion image is produced.
                     settings = AVCapturePhotoSettings(rawPixelFormatType: format)
+                    // Bayer RAW has no multi-frame processing to prioritise, and
+                    // AVFoundation raises an exception for any other value.
+                    settings.photoQualityPrioritization = .speed
                 } else {
                     if photoOutput.availablePhotoCodecTypes.contains(.hevc) {
                         settings = AVCapturePhotoSettings(format: [AVVideoCodecKey: AVVideoCodecType.hevc])
@@ -185,8 +188,8 @@ final class CameraSession: NSObject, @unchecked Sendable {
                         settings = AVCapturePhotoSettings()
                     }
                     settings.maxPhotoDimensions = photoOutput.maxPhotoDimensions
+                    settings.photoQualityPrioritization = .balanced
                 }
-                settings.photoQualityPrioritization = .balanced
                 let id = settings.uniqueID
                 let processor = PhotoCaptureProcessor { [weak self] result in
                     self?.removeInFlight(id)
