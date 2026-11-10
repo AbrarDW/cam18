@@ -43,11 +43,11 @@ open Cam18.xcodeproj
 
 The simulator has no camera, so check these on the 17 Pro:
 
-- [ ] The preview runs smoothly with each look on every lens.
-- [ ] Captured photos match the preview.
-- [ ] Toggle **off**: reopen the photo in Cam18 and change the look, then use Revert in Photos.
-- [ ] Toggle **on**: the photo shows the look when shared, Photos offers no Revert, and the toggle survives an app restart.
-- [ ] Soft Skin leaves non-skin areas sharp.
+- [x] The preview runs smoothly with each look on every lens.
+- [x] Captured photos match the preview.
+- [x] Toggle **off**: reopen the photo in Cam18 and change the look, then use Revert in Photos.
+- [x] Toggle **on**: the photo shows the look when shared, Photos offers no Revert, and the toggle survives an app restart.
+- [x] Soft Skin leaves non-skin areas sharp.
 
 ## Out of scope for v1
 
